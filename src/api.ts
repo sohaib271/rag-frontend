@@ -74,16 +74,17 @@ export async function uploadCompanyData(
 export async function askCompanyQuestion(
   companyId: string,
   query: string,
-): Promise<{ answer: string }> {
+  conversationId?: string,
+): Promise<{ answer: string; conversationId: string }> {
   const response = await fetch(`${apiUrl}/company/question`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ companyId, query }),
+    body: JSON.stringify({ companyId, query, ...(conversationId ? { conversationId } : {}) }),
   });
 
   if (!response.ok) {
     throw new Error('Unable to get an answer. Please try again.');
   }
 
-  return response.json() as Promise<{ answer: string }>;
+  return response.json() as Promise<{ answer: string; conversationId: string }>;
 }

@@ -161,6 +161,8 @@ function Companies({ companies, loading, error, onRetry, onCreate, onTest, onAdd
 function Chat({ companyId, companyName }: { companyId: string; companyName: string }) {
   const [input, setInput] = useState('');
   const [isSending, setIsSending] = useState(false);
+  const conversationStorageKey = `conversationId:${companyId}`;
+  const [conversationId, setConversationId] = useState<string | null>(() => localStorage.getItem(conversationStorageKey));
   const [messages, setMessages] = useState<Message[]>([
     { id: 1, role: 'assistant', text: "Hi! I’m Atlas. I can answer questions using your company’s knowledge base. What would you like to know?" },
   ]);
@@ -180,7 +182,11 @@ function Chat({ companyId, companyName }: { companyId: string; companyName: stri
         throw new Error('Complete company setup before asking a question.');
       }
 
-      const result = await askCompanyQuestion(companyId, text);
+      const result = await askCompanyQuestion(companyId, text, conversationId ?? undefined);
+      if (result.conversationId) {
+        setConversationId(result.conversationId);
+        localStorage.setItem(conversationStorageKey, result.conversationId);
+      }
 
       setMessages((items) => [...items, { id: messageId + 1, role: 'assistant', text: result.answer || 'I could not find relevant information in this company knowledge base.' }]);
     } catch (error) {
@@ -201,9 +207,16 @@ function Chat({ companyId, companyName }: { companyId: string; companyName: stri
     setInput(question);
   };
 
+  const startNewConversation = () => {
+    localStorage.removeItem(conversationStorageKey);
+    setConversationId(null);
+    setMessages((items) => items.slice(0, 1));
+    setInput('');
+  };
+
   return (
     <main className="chat-page">
-      <header className="chat-header"><div><p className="eyebrow">TESTING {companyName.toUpperCase()}</p><h1>Ask Atlas</h1></div><button className="new-chat" onClick={() => setMessages(messages.slice(0, 1))}><PlusIcon /> New conversation</button></header>
+      <header className="chat-header"><div><p className="eyebrow">TESTING {companyName.toUpperCase()}</p><h1>Ask Atlas</h1></div><button className="new-chat" onClick={startNewConversation} disabled={isSending}><PlusIcon /> New conversation</button></header>
       <section className="conversation">
         <div className="messages">
           {messages.map((message) => <div key={message.id} className={`message-row ${message.role}`}><span className="message-avatar">{message.role === 'assistant' ? 'A' : 'JD'}</span><div><small>{message.role === 'assistant' ? 'Atlas' : 'You'}</small><p>{message.text}</p>{message.role === 'assistant' && message.id !== 1 && <span className="source">▣ Based on your company knowledge</span>}</div></div>)}
