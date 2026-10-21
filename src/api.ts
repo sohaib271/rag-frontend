@@ -75,7 +75,7 @@ export async function askCompanyQuestion(
   companyId: string,
   query: string,
   conversationId?: string,
-): Promise<{ answer: string; conversationId: string }> {
+): Promise<{ answer: string; conversationId: string; source: 'direct' | 'rag' }> {
   const response = await fetch(`${apiUrl}/company/question`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -86,5 +86,48 @@ export async function askCompanyQuestion(
     throw new Error('Unable to get an answer. Please try again.');
   }
 
-  return response.json() as Promise<{ answer: string; conversationId: string }>;
+  return response.json() as Promise<{ answer: string; conversationId: string; source: 'direct' | 'rag' }>;
+}
+
+export type DirectAnswer = {
+  id: string;
+  companyId: string;
+  question: string;
+  answer: string;
+  phrases: string[];
+  enabled: boolean;
+  showAsSuggestion: boolean;
+};
+
+async function directAnswerRequest<T>(path: string, options?: RequestInit): Promise<T> {
+  const response = await fetch(`${apiUrl}/company/direct-answers${path}`, options);
+  if (!response.ok) {
+    const result = await response.json().catch(() => null) as { message?: string } | null;
+    throw new Error(result?.message ?? 'Unable to save direct answers.');
+  }
+  return response.json() as Promise<T>;
+}
+
+export function getDirectAnswers(companyId: string) {
+  return directAnswerRequest<DirectAnswer[]>(`?companyId=${encodeURIComponent(companyId)}`);
+}
+
+export function getDirectAnswerSuggestions(companyId: string) {
+  return directAnswerRequest<Pick<DirectAnswer, 'id' | 'question'>[]>(`/suggestions?companyId=${encodeURIComponent(companyId)}`);
+}
+
+export function createDirectAnswer(input: Omit<DirectAnswer, 'id'>) {
+  return directAnswerRequest<DirectAnswer>('', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input),
+  });
+}
+
+export function updateDirectAnswer(id: string, input: Partial<Omit<DirectAnswer, 'id' | 'companyId'>>) {
+  return directAnswerRequest<DirectAnswer>(`/${id}`, {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input),
+  });
+}
+
+export function deleteDirectAnswer(id: string) {
+  return directAnswerRequest<{ deleted: true }>(`/${id}`, { method: 'DELETE' });
 }

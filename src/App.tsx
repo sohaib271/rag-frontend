@@ -1,9 +1,11 @@
 import { FormEvent, ReactNode, useCallback, useEffect, useRef, useState } from 'react';
 import { addCompanyData, askCompanyQuestion, createCompany, getCompanies, uploadCompanyData } from './api';
 import type { Company } from './api';
+import { DirectAnswers } from './DirectAnswers';
+import { DirectAnswerSuggestions } from './DirectAnswerSuggestions';
 
-type View = 'companies' | 'setup' | 'chat';
-type Message = { id: number; role: 'user' | 'assistant'; text: string };
+type View = 'companies' | 'setup' | 'directAnswers' | 'chat';
+type Message = { id: number; role: 'user' | 'assistant'; text: string; source?: 'direct' | 'rag' };
 
 const Icon = ({ children, size = 20 }: { children: ReactNode; size?: number }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -18,14 +20,16 @@ const BackIcon = () => <Icon size={18}><path d="m15 18-6-6 6-6" /></Icon>;
 const FileIcon = () => <Icon size={22}><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><path d="M14 2v6h6M8 13h8M8 17h6" /></Icon>;
 const SendIcon = () => <Icon size={18}><path d="m22 2-7 20-4-9-9-4zM22 2 11 13" /></Icon>;
 const PlusIcon = () => <Icon size={18}><path d="M12 5v14M5 12h14" /></Icon>;
+const BoltIcon = () => <Icon><path d="m13 2-9 12h7l-1 8 9-12h-7z" /></Icon>;
 
-function Sidebar({ view, setView, canChat }: { view: View; setView: (view: View) => void; canChat: boolean }) {
+function Sidebar({ view, setView, hasCompany, canChat }: { view: View; setView: (view: View) => void; hasCompany: boolean; canChat: boolean }) {
   return (
     <aside className="sidebar">
       <div className="brand"><span className="brand-mark">A</span><span>Atlas</span></div>
       <nav>
         <button className={view === 'companies' ? 'nav-item active' : 'nav-item'} onClick={() => setView('companies')}><BuildingIcon /> Companies</button>
         <button className={view === 'setup' ? 'nav-item active' : 'nav-item'} onClick={() => setView('setup')}><BuildingIcon /> Company setup</button>
+        <button className={view === 'directAnswers' ? 'nav-item active' : 'nav-item'} onClick={() => setView(hasCompany ? 'directAnswers' : 'companies')}><BoltIcon /> Direct answers</button>
         <button className={view === 'chat' ? 'nav-item active' : 'nav-item'} onClick={() => setView(canChat ? 'chat' : 'companies')}><ChatIcon /> Ask Atlas</button>
       </nav>
       <div className="sidebar-bottom">
@@ -130,7 +134,7 @@ function Setup({ goToChat, onCompanyCreated, onSetupComplete, existingCompany, o
   );
 }
 
-function Companies({ companies, loading, error, onRetry, onCreate, onTest, onAddDocument }: {
+function Companies({ companies, loading, error, onRetry, onCreate, onTest, onAddDocument, onDirectAnswers }: {
   companies: Company[];
   loading: boolean;
   error: string;
@@ -138,6 +142,7 @@ function Companies({ companies, loading, error, onRetry, onCreate, onTest, onAdd
   onCreate: () => void;
   onTest: (company: Company) => void;
   onAddDocument: (company: Company) => void;
+  onDirectAnswers: (company: Company) => void;
 }) {
   return (
     <main className="content">
@@ -149,6 +154,7 @@ function Companies({ companies, loading, error, onRetry, onCreate, onTest, onAdd
         {companies.map((company) => <article className="company-card" key={company.id}>
           <span className="form-icon"><BuildingIcon /></span>
           <div className="company-card-details"><h2>{company.name}</h2><p>{company.documentCount} {company.documentCount === 1 ? 'document' : 'documents'} · Created {new Date(company.createdAt).toLocaleDateString()}</p></div>
+          <button className="secondary" onClick={() => onDirectAnswers(company)}>Direct answers</button>
           {company.documentCount > 0
             ? <button className="primary" onClick={() => onTest(company)}>Test chatbot <ArrowIcon /></button>
             : <button className="secondary" onClick={() => onAddDocument(company)}>Add document <ArrowIcon /></button>}
@@ -166,10 +172,8 @@ function Chat({ companyId, companyName }: { companyId: string; companyName: stri
   const [messages, setMessages] = useState<Message[]>([
     { id: 1, role: 'assistant', text: "Hi! I’m Atlas. I can answer questions using your company’s knowledge base. What would you like to know?" },
   ]);
-
-  const send = async (event: FormEvent) => {
-    event.preventDefault();
-    const text = input.trim();
+  const sendQuestion = async (rawText: string) => {
+    const text = rawText.trim();
     if (!text || isSending) return;
 
     const messageId = Date.now();
@@ -188,7 +192,7 @@ function Chat({ companyId, companyName }: { companyId: string; companyName: stri
         localStorage.setItem(conversationStorageKey, result.conversationId);
       }
 
-      setMessages((items) => [...items, { id: messageId + 1, role: 'assistant', text: result.answer || 'I could not find relevant information in this company knowledge base.' }]);
+      setMessages((items) => [...items, { id: messageId + 1, role: 'assistant', text: result.answer || 'I could not find relevant information in this company knowledge base.', source: result.source }]);
     } catch (error) {
       setMessages((items) => [
         ...items,
@@ -203,8 +207,9 @@ function Chat({ companyId, companyName }: { companyId: string; companyName: stri
     }
   };
 
-  const ask = (question: string) => {
-    setInput(question);
+  const send = (event: FormEvent) => {
+    event.preventDefault();
+    void sendQuestion(input);
   };
 
   const startNewConversation = () => {
@@ -219,8 +224,8 @@ function Chat({ companyId, companyName }: { companyId: string; companyName: stri
       <header className="chat-header"><div><p className="eyebrow">TESTING {companyName.toUpperCase()}</p><h1>Ask Atlas</h1></div><button className="new-chat" onClick={startNewConversation} disabled={isSending}><PlusIcon /> New conversation</button></header>
       <section className="conversation">
         <div className="messages">
-          {messages.map((message) => <div key={message.id} className={`message-row ${message.role}`}><span className="message-avatar">{message.role === 'assistant' ? 'A' : 'JD'}</span><div><small>{message.role === 'assistant' ? 'Atlas' : 'You'}</small><p>{message.text}</p>{message.role === 'assistant' && message.id !== 1 && <span className="source">▣ Based on your company knowledge</span>}</div></div>)}
-          {messages.length === 1 && <div className="suggestions"><p>Try asking</p><div><button onClick={() => ask('What is our remote work policy?')}>What is our remote work policy?</button><button onClick={() => ask('Summarize our main products')}>Summarize our main products</button><button onClick={() => ask('How do I request time off?')}>How do I request time off?</button></div></div>}
+          {messages.map((message) => <div key={message.id} className={`message-row ${message.role}`}><span className="message-avatar">{message.role === 'assistant' ? 'A' : 'JD'}</span><div><small>{message.role === 'assistant' ? 'Atlas' : 'You'}</small><p>{message.text}</p>{message.role === 'assistant' && message.id !== 1 && <span className="source">{message.source === 'direct' ? '⚡ Instant direct answer' : '▣ Based on your company knowledge'}</span>}</div></div>)}
+          {messages.length === 1 && <DirectAnswerSuggestions companyId={companyId} disabled={isSending} onAsk={(question) => void sendQuestion(question)} />}
         </div>
         <form className="composer" onSubmit={send}><textarea rows={1} placeholder={isSending ? 'Searching company knowledge...' : 'Ask a question about your company…'} value={input} disabled={isSending} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); e.currentTarget.form?.requestSubmit(); } }} /><button aria-label="Send message" disabled={!input.trim() || isSending}><SendIcon /></button><small>Atlas answers from your company knowledge. Check important information.</small></form>
       </section>
@@ -271,6 +276,11 @@ export default function App() {
     setView('setup');
   };
 
+  const manageDirectAnswers = (company: Company) => {
+    saveCompanyId(company.id);
+    setView('directAnswers');
+  };
+
   const selectedCompany = companies.find((company) => company.id === companyId);
 
   return <div className="app-shell">
@@ -280,9 +290,10 @@ export default function App() {
         if (nextView === 'companies') void loadCompanies();
         setView(nextView);
       }
-    }} canChat={Boolean(selectedCompany?.documentCount)} />
-    {view === 'companies' && <Companies companies={companies} loading={companiesLoading} error={companiesError} onRetry={() => void loadCompanies()} onCreate={createNewCompany} onTest={testCompany} onAddDocument={addDocument} />}
+    }} hasCompany={Boolean(selectedCompany)} canChat={Boolean(selectedCompany?.documentCount)} />
+    {view === 'companies' && <Companies companies={companies} loading={companiesLoading} error={companiesError} onRetry={() => void loadCompanies()} onCreate={createNewCompany} onTest={testCompany} onAddDocument={addDocument} onDirectAnswers={manageDirectAnswers} />}
     {view === 'setup' && <Setup key={setupCompany?.id ?? 'new'} existingCompany={setupCompany} onBackToCompanies={() => setView('companies')} goToChat={() => { void loadCompanies(); setView('chat'); }} onCompanyCreated={saveCompanyId} onSetupComplete={() => void loadCompanies()} />}
+    {view === 'directAnswers' && <DirectAnswers key={companyId} companyId={companyId} companyName={selectedCompany?.name ?? 'your company'} />}
     {view === 'chat' && <Chat key={companyId} companyId={companyId} companyName={selectedCompany?.name ?? 'your company'} />}
   </div>;
 }
