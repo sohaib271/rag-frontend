@@ -5,7 +5,7 @@ import { DirectAnswers } from './DirectAnswers';
 import { DirectAnswerSuggestions } from './DirectAnswerSuggestions';
 
 type View = 'companies' | 'setup' | 'directAnswers' | 'chat';
-type Message = { id: number; role: 'user' | 'assistant'; text: string; source?: 'direct' | 'rag' };
+type Message = { id: number; role: 'user' | 'assistant'; text: string; source?: 'direct' | 'cache' | 'semantic-cache' | 'rag' };
 
 const Icon = ({ children, size = 20 }: { children: ReactNode; size?: number }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -224,7 +224,7 @@ function Chat({ companyId, companyName }: { companyId: string; companyName: stri
       <header className="chat-header"><div><p className="eyebrow">TESTING {companyName.toUpperCase()}</p><h1>Ask Atlas</h1></div><button className="new-chat" onClick={startNewConversation} disabled={isSending}><PlusIcon /> New conversation</button></header>
       <section className="conversation">
         <div className="messages">
-          {messages.map((message) => <div key={message.id} className={`message-row ${message.role}`}><span className="message-avatar">{message.role === 'assistant' ? 'A' : 'JD'}</span><div><small>{message.role === 'assistant' ? 'Atlas' : 'You'}</small><p>{message.text}</p>{message.role === 'assistant' && message.id !== 1 && <span className="source">{message.source === 'direct' ? '⚡ Instant direct answer' : '▣ Based on your company knowledge'}</span>}</div></div>)}
+          {messages.map((message) => <div key={message.id} className={`message-row ${message.role}`}><span className="message-avatar">{message.role === 'assistant' ? 'A' : 'JD'}</span><div><small>{message.role === 'assistant' ? 'Atlas' : 'You'}</small><p>{message.text}</p>{message.role && message.source && <span className="source">{message.source === 'direct' ? '⚡ Instant direct answer' : message.source === 'cache' ? '⚡ Exact cached answer' : message.source === 'semantic-cache' ? '⚡ Semantic cached answer' : '▣ Based on your company knowledge'}</span>}</div></div>)}
           {messages.length === 1 && <DirectAnswerSuggestions companyId={companyId} disabled={isSending} onAsk={(question) => void sendQuestion(question)} />}
         </div>
         <form className="composer" onSubmit={send}><textarea rows={1} placeholder={isSending ? 'Searching company knowledge...' : 'Ask a question about your company…'} value={input} disabled={isSending} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); e.currentTarget.form?.requestSubmit(); } }} /><button aria-label="Send message" disabled={!input.trim() || isSending}><SendIcon /></button><small>Atlas answers from your company knowledge. Check important information.</small></form>

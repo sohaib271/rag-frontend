@@ -75,7 +75,7 @@ export async function askCompanyQuestion(
   companyId: string,
   query: string,
   conversationId?: string,
-): Promise<{ answer: string; conversationId: string; source: 'direct' | 'rag' }> {
+): Promise<{ answer: string; conversationId: string; source: 'direct' | 'cache' | 'semantic-cache' | 'rag' }> {
   const response = await fetch(`${apiUrl}/company/question`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -83,10 +83,30 @@ export async function askCompanyQuestion(
   });
 
   if (!response.ok) {
-    throw new Error('Unable to get an answer. Please try again.');
+    const body = await response.text();
+    let message = body;
+    try {
+      const result = JSON.parse(body) as { message?: string | string[] };
+      message = Array.isArray(result.message) ? result.message.join(', ') : result.message ?? body;
+    } catch {
+      // Keep the plain response body when the server did not return JSON.
+    }
+
+    // A stored conversation ID can become stale after a database reset or
+    // conversation cleanup. Retry once without it and let the caller store
+    // the newly created conversation ID.
+    if (
+      response.status === 404 &&
+      conversationId &&
+      message === 'Conversation not found for this company.'
+    ) {
+      return askCompanyQuestion(companyId, query);
+    }
+
+    throw new Error(message || `Request failed with HTTP ${response.status}.`);
   }
 
-  return response.json() as Promise<{ answer: string; conversationId: string; source: 'direct' | 'rag' }>;
+  return response.json() as Promise<{ answer: string; conversationId: string; source: 'direct' | 'cache' | 'semantic-cache' | 'rag' }>;
 }
 
 export type DirectAnswer = {
