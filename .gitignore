@@ -5,3 +5,8 @@ dist/
 vite.config.js
 vite.config.d.ts
 config.bat
+
+.env
+.env.*
+!.env.example
+init
